@@ -1,0 +1,122 @@
+{
+  "entities": {
+    "BloodStock": {
+      "title": "BloodStock",
+      "description": "Stock levels for blood products across various hospital sites in Zanzibar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "centerRoute": { "type": "string" },
+        "productType": { "type": "string" },
+        "bloodType": { "type": "string" },
+        "quantity": { "type": "number" },
+        "lastUpdated": { "type": "number" }
+      },
+      "required": ["centerRoute", "productType", "bloodType", "quantity"]
+    },
+    "BloodRequest": {
+      "title": "BloodRequest",
+      "description": "Hospital blood requisitions and status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "hospitalName": { "type": "string" },
+        "status": { "type": "string" },
+        "urgency": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "items": { "type": "array" }
+      },
+      "required": ["hospitalName", "status", "urgency", "timestamp", "items"]
+    },
+    "NewsItem": {
+      "title": "NewsItem",
+      "description": "Announcements and urgent blood alert broadcasts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "author": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["title", "content", "category", "timestamp"]
+    },
+    "UnitTransfer": {
+      "title": "UnitTransfer",
+      "description": "Inter-hospital blood unit dispatch tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "transferFrom": { "type": "string" },
+        "transferTo": { "type": "string" },
+        "productType": { "type": "string" },
+        "bloodType": { "type": "string" },
+        "unitIds": { "type": "array" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["transferFrom", "transferTo", "productType", "bloodType", "unitIds", "timestamp"]
+    },
+    "BloodReception": {
+      "title": "BloodReception",
+      "description": "Records of blood units and consignments received from different sites and collection centers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "receptionNumber": { "type": "string" },
+        "sourceSite": { "type": "string" },
+        "sourceSiteName": { "type": "string" },
+        "receivingFacility": { "type": "string" },
+        "receivingFacilityName": { "type": "string" },
+        "receivedDate": { "type": "number" },
+        "receivedBy": { "type": "string" },
+        "courierName": { "type": "string" },
+        "temperature": { "type": "string" },
+        "coldChainIntact": { "type": "boolean" },
+        "status": { "type": "string" },
+        "items": { "type": "array" },
+        "totalUnits": { "type": "number" },
+        "notes": { "type": "string" },
+        "updatedInventory": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["receptionNumber", "sourceSite", "receivingFacility", "receivedDate", "receivedBy", "status", "items", "totalUnits", "timestamp"]
+    },
+    "SettingsDocument": {
+      "title": "SettingsDocument",
+      "description": "System settings, duty rosters, emergency contacts, and authorizations",
+      "type": "object",
+      "properties": {
+        "authorizations": { "type": "array" },
+        "contacts": { "type": "array" },
+        "roster": { "type": "array" }
+      }
+    }
+  },
+  "firestore": {
+    "/inventory/{stockId}": {
+      "schema": { "$ref": "#/entities/BloodStock" },
+      "description": "Blood stock documents"
+    },
+    "/requests/{requestId}": {
+      "schema": { "$ref": "#/entities/BloodRequest" },
+      "description": "Blood request documents"
+    },
+    "/news/{newsId}": {
+      "schema": { "$ref": "#/entities/NewsItem" },
+      "description": "News & announcements"
+    },
+    "/transfers/{transferId}": {
+      "schema": { "$ref": "#/entities/UnitTransfer" },
+      "description": "Inter-hospital transfer logs"
+    },
+    "/receptions/{receptionId}": {
+      "schema": { "$ref": "#/entities/BloodReception" },
+      "description": "Blood receiving records from collection sites and hospitals"
+    },
+    "/settings/{settingsId}": {
+      "schema": { "$ref": "#/entities/SettingsDocument" },
+      "description": "System configuration and authorizations"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "ZBTS Blood Bank",
+  "description": "Zanzibar Blood Transfusion Services (ZNBTS) Progressive Web Application for online blood requests, real-time multi-site inventory management, trend analytics, weekly lab roster, and emergency administrative coordination.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,42 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Requires valid Firebase authentication credential; reject when false or unauthenticated
+    match /{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /some_collection/{document} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /inventory/{stockId} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /requests/{requestId} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /news/{newsId} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /transfers/{transferId} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /receptions/{receptionId} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /settings/{settingsId} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+
+    match /test/{document} {
+      allow read, write: if request.auth != null && request.auth.uid != null;
+    }
+  }
+}
