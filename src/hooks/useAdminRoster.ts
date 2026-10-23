@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { auth, db, doc, onSnapshot, setDoc, handleFirestoreError, OperationType } from "../services/firebase";
 import { EmergencyContact, LabStaff, ShiftType, StaffMember } from "../types";
 import {
@@ -8,6 +8,14 @@ import {
   SHIFT_MAX_STAFF
 } from "../config/constants";
 import { playSuccessSound } from "../services/audio";
+
+const normalizeStaffList = (list: StaffMember[]): StaffMember[] => {
+  return list.map((s, idx) => ({
+    id: (s.id && String(s.id).trim()) || `Lab ${idx + 1}`,
+    name: (s.name && String(s.name).trim()) || "",
+    phone: (s.phone && String(s.phone).trim()) || ""
+  }));
+};
 
 const ensureUniformSlots = (items: LabStaff[]): LabStaff[] => {
   const shifts: ShiftType[] = ["Morning", "Evening", "Weekend"];
@@ -98,20 +106,12 @@ export const useAdminRoster = () => {
 
   const staffList = useMemo<StaffMember[]>(() => {
     if (persistedStaff && persistedStaff.length > 0) {
-      return persistedStaff.map((s, idx) => ({
-        id: (s.id && String(s.id).trim()) || `Lab ${idx + 1}`,
-        name: (s.name && String(s.name).trim()) || "",
-        phone: (s.phone && String(s.phone).trim()) || ""
-      }));
+      return normalizeStaffList(persistedStaff);
     }
-    return ALL_LAB_STAFF.map((s, idx) => ({
-      id: s.id || `Lab ${idx + 1}`,
-      name: s.name || "",
-      phone: s.phone || ""
-    }));
+    return normalizeStaffList(ALL_LAB_STAFF);
   }, [persistedStaff]);
 
-  const updateContact = async (
+  const updateContact = useCallback(async (
     id: number,
     name: string,
     phone: string,
@@ -125,21 +125,21 @@ export const useAdminRoster = () => {
     }
     await setDoc(doc(db, "settings", "emergency_contacts"), { contacts: updated });
     playSuccessSound();
-  };
+  }, [contacts]);
 
-  const batchUpdateStaffShift = async (
+  const batchUpdateStaffShift = useCallback(async (
     shift: ShiftType,
     selectedNames: Set<string>,
     maxAllowed: number
   ) => {
     const selectedNamesLower = new Set(
-      Array.from(selectedNames).map((n) => n.trim().toLowerCase())
+      Array.from(selectedNames).map((n) => (n || "").trim().toLowerCase())
     );
 
     const otherStaff = roster
       .filter((s) => s.shift !== shift)
       .map((s) => {
-        if (s.name.trim() && selectedNamesLower.has(s.name.trim().toLowerCase())) {
+        if (s.name && s.name.trim() && selectedNamesLower.has(s.name.trim().toLowerCase())) {
           return { ...s, name: "", phone: "", labId: "" };
         }
         return s;
@@ -150,16 +150,17 @@ export const useAdminRoster = () => {
     const newShiftStaff: LabStaff[] = [];
 
     const getStaffDetails = (nameToFind: string) => {
+      const searchTarget = (nameToFind || "").trim().toLowerCase();
       const fromStaffList = staffList.find(
-        (s) => s.name.trim().toLowerCase() === nameToFind.trim().toLowerCase()
+        (s) => (s.name || "").trim().toLowerCase() === searchTarget
       );
       if (fromStaffList) return fromStaffList;
       const fromRoster = roster.find(
-        (s) => s.name.trim().toLowerCase() === nameToFind.trim().toLowerCase()
+        (s) => (s.name || "").trim().toLowerCase() === searchTarget
       );
       if (fromRoster) return { id: fromRoster.labId || "", name: fromRoster.name, phone: fromRoster.phone };
       const fromAll = ALL_LAB_STAFF.find(
-        (s) => s.name.trim().toLowerCase() === nameToFind.trim().toLowerCase()
+        (s) => (s.name || "").trim().toLowerCase() === searchTarget
       );
       return { id: fromAll?.id || "", name: nameToFind, phone: fromAll?.phone || "" };
     };
@@ -168,7 +169,7 @@ export const useAdminRoster = () => {
       const existingSlotId = existingShiftSlots[i]?.id || `${shift.toLowerCase()}_slot_${i + 1}`;
       const defaultSlotLabId = `Lab ${i + 1}`;
       if (i < namesArray.length) {
-        const staffName = namesArray[i].trim();
+        const staffName = (namesArray[i] || "").trim();
         const details = getStaffDetails(staffName);
         newShiftStaff.push({
           id: existingSlotId,
@@ -192,26 +193,21 @@ export const useAdminRoster = () => {
     setRoster(updatedRoster);
     await setDoc(doc(db, "settings", "lab_roster"), { roster: updatedRoster });
     playSuccessSound();
-  };
+  }, [roster, staffList]);
 
-  const addNewStaff = async (id: string, name: string, phone: string) => {
-    const trimmedId = id.trim() || `Lab ${staffList.length + 1}`;
-    const trimmedName = name.trim();
-    const trimmedPhone = phone.trim();
+  const addNewStaff = useCallback(async (id: string, name: string, phone: string) => {
+    const trimmedId = (id || "").trim() || `Lab ${staffList.length + 1}`;
+    const trimmedName = (name || "").trim();
+    const trimmedPhone = (phone || "").trim();
 
-    const baseList = staffList.map((s, idx) => ({
-      id: (s.id && String(s.id).trim()) || `Lab ${idx + 1}`,
-      name: (s.name && String(s.name).trim()) || "",
-      phone: (s.phone && String(s.phone).trim()) || ""
-    }));
-
+    const baseList = normalizeStaffList(staffList);
     const updatedStaffList = [...baseList, { id: trimmedId, name: trimmedName, phone: trimmedPhone }];
     setPersistedStaff(updatedStaffList);
     await setDoc(doc(db, "settings", "lab_staff_list"), { staffList: updatedStaffList });
     playSuccessSound();
-  };
+  }, [staffList]);
 
-  const updateStaffMember = async (
+  const updateStaffMember = useCallback(async (
     cardId: string,
     newId: string,
     newName: string,
@@ -222,12 +218,7 @@ export const useAdminRoster = () => {
     const trimmedName = (newName || "").trim();
     const trimmedPhone = (newPhone || "").trim();
 
-    const baseList = staffList.map((s, idx) => ({
-      id: (s.id && String(s.id).trim()) || `Lab ${idx + 1}`,
-      name: (s.name && String(s.name).trim()) || "",
-      phone: (s.phone && String(s.phone).trim()) || ""
-    }));
-
+    const baseList = normalizeStaffList(staffList);
     const targetCard = baseList.find(
       (s) =>
         (s.id && s.id.trim().toLowerCase() === targetKey) ||
@@ -263,18 +254,13 @@ export const useAdminRoster = () => {
     setRoster(updatedRoster);
     await setDoc(doc(db, "settings", "lab_roster"), { roster: updatedRoster });
     playSuccessSound();
-  };
+  }, [roster, staffList]);
 
-  const clearStaffSlot = async (cardId: string, staffName?: string) => {
+  const clearStaffSlot = useCallback(async (cardId: string, staffName?: string) => {
     const targetId = (cardId || "").trim().toLowerCase();
     const targetName = (staffName || "").trim().toLowerCase();
 
-    const baseList = staffList.map((s, idx) => ({
-      id: (s.id && String(s.id).trim()) || `Lab ${idx + 1}`,
-      name: (s.name && String(s.name).trim()) || "",
-      phone: (s.phone && String(s.phone).trim()) || ""
-    }));
-
+    const baseList = normalizeStaffList(staffList);
     const targetCard = baseList.find((s) => {
       const sId = (s.id || "").trim().toLowerCase();
       const sName = (s.name || "").trim().toLowerCase();
@@ -312,18 +298,13 @@ export const useAdminRoster = () => {
     setRoster(updatedRoster);
     await setDoc(doc(db, "settings", "lab_roster"), { roster: updatedRoster });
     playSuccessSound();
-  };
+  }, [roster, staffList]);
 
-  const deleteStaffCard = async (cardId: string, staffName?: string) => {
+  const deleteStaffCard = useCallback(async (cardId: string, staffName?: string) => {
     const targetId = (cardId || "").trim().toLowerCase();
     const targetName = (staffName || "").trim().toLowerCase();
 
-    const baseList = staffList.map((s, idx) => ({
-      id: (s.id && String(s.id).trim()) || `Lab ${idx + 1}`,
-      name: (s.name && String(s.name).trim()) || "",
-      phone: (s.phone && String(s.phone).trim()) || ""
-    }));
-
+    const baseList = normalizeStaffList(staffList);
     const targetCard = baseList.find((s) => {
       const sId = (s.id || "").trim().toLowerCase();
       const sName = (s.name || "").trim().toLowerCase();
@@ -360,7 +341,7 @@ export const useAdminRoster = () => {
     setRoster(updatedRoster);
     await setDoc(doc(db, "settings", "lab_roster"), { roster: updatedRoster });
     playSuccessSound();
-  };
+  }, [roster, staffList]);
 
   return {
     contacts,

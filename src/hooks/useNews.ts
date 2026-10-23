@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   auth,
   db,
@@ -48,7 +48,7 @@ export const useNews = () => {
     return () => unsubscribe();
   }, []);
 
-  const postNews = async (
+  const postNews = useCallback(async (
     title: string,
     content: string,
     category: NewsCategory,
@@ -70,16 +70,16 @@ export const useNews = () => {
       handleFirestoreError(err, OperationType.CREATE, "news");
       return null;
     }
-  };
+  }, []);
 
-  const deleteNews = async (id: string) => {
+  const deleteNews = useCallback(async (id: string) => {
     try {
       const docRef = doc(db, "news", id);
       await deleteDoc(docRef);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `news/${id}`);
     }
-  };
+  }, []);
 
   return {
     newsItems,

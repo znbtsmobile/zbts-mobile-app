@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   auth,
   db,
@@ -44,7 +44,7 @@ export const useInventory = () => {
     return () => unsubscribe();
   }, []);
 
-  const updateCenterStock = async (
+  const updateCenterStock = useCallback(async (
     centerRoute: string,
     updates: Array<{ productType: string; bloodType: string; quantity: number }>
   ): Promise<boolean> => {
@@ -73,7 +73,7 @@ export const useInventory = () => {
       handleFirestoreError(e, OperationType.WRITE, "inventory");
       return false;
     }
-  };
+  }, []);
 
   return {
     inventory,

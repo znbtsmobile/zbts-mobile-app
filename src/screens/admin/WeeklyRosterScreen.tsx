@@ -35,8 +35,17 @@ export const WeeklyRosterScreen: React.FC<WeeklyRosterScreenProps> = ({ roster }
     };
   }, []);
 
-  const getShift = (shiftName: string) =>
-    roster.filter((s) => s.shift === shiftName && (s.name.trim() !== "" || (s.labId && s.phone.trim() !== "")));
+  const { morningStaff, eveningStaff, weekendStaff } = useMemo(() => {
+    const filterShift = (shiftName: string) =>
+      roster.filter(
+        (s) => s.shift === shiftName && ((s.name && s.name.trim() !== "") || (s.labId && s.phone && s.phone.trim() !== ""))
+      );
+    return {
+      morningStaff: filterShift("Morning"),
+      eveningStaff: filterShift("Evening"),
+      weekendStaff: filterShift("Weekend")
+    };
+  }, [roster]);
 
   return (
     <div className="space-y-6">
@@ -50,14 +59,14 @@ export const WeeklyRosterScreen: React.FC<WeeklyRosterScreenProps> = ({ roster }
         <p className="text-[#1E3A8A] font-bold">{dateRange}</p>
       </div>
 
-      <RosterSection title="Morning Shift" staffs={getShift("Morning")} />
-      <RosterSection title="Evening Shift" staffs={getShift("Evening")} />
-      <RosterSection title="Weekend Shift" staffs={getShift("Weekend")} />
+      <RosterSection title="Morning Shift" staffs={morningStaff} />
+      <RosterSection title="Evening Shift" staffs={eveningStaff} />
+      <RosterSection title="Weekend Shift" staffs={weekendStaff} />
     </div>
   );
 };
 
-const RosterSection: React.FC<{ title: string; staffs: LabStaff[] }> = ({ title, staffs }) => (
+const RosterSection: React.FC<{ title: string; staffs: LabStaff[] }> = React.memo(({ title, staffs }) => (
   <div>
     <h3 className="text-lg font-bold text-[#0B1E36] mb-3">{title}</h3>
     {staffs.length === 0 ? (
@@ -68,16 +77,16 @@ const RosterSection: React.FC<{ title: string; staffs: LabStaff[] }> = ({ title,
           <a
             key={staff.id}
             href={`tel:${staff.phone}`}
-            className="flex items-center bg-slate-100 p-4 rounded-[1.25rem] active:scale-95 transition-transform shadow-sm"
+            className="flex items-center bg-slate-100 p-4 rounded-[1.25rem] active:scale-95 transition-transform shadow-sm cursor-pointer"
           >
-            <div className="bg-slate-100 w-12 h-12 rounded-full flex items-center justify-center shadow-sm shrink-0">
+            <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center shadow-sm shrink-0 border border-slate-200">
               <User className="text-[#1976D2] w-6 h-6" />
             </div>
-            <div className="ml-4 flex-1">
+            <div className="ml-4 flex-1 min-w-0">
               <p className="text-xs font-bold text-[#1565C0]">{staff.shift}</p>
-              <p className="font-bold text-[#0B1E36] text-lg leading-tight">{staff.labId || staff.id}</p>
-              <p className="text-sm text-[#0D47A1] font-semibold flex items-center mt-1">
-                <Phone className="w-3.5 h-3.5 text-[#1976D2] mr-1.5" /> {staff.phone}
+              <p className="font-bold text-[#0B1E36] text-lg leading-tight truncate">{staff.labId || staff.id}</p>
+              <p className="text-sm text-[#0D47A1] font-semibold flex items-center mt-1 truncate">
+                <Phone className="w-3.5 h-3.5 text-[#1976D2] mr-1.5 shrink-0" /> {staff.phone}
               </p>
             </div>
           </a>
@@ -85,4 +94,4 @@ const RosterSection: React.FC<{ title: string; staffs: LabStaff[] }> = ({ title,
       </div>
     )}
   </div>
-);
+));

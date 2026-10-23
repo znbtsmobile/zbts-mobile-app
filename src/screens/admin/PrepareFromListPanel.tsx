@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { LabStaff, ShiftType, StaffMember } from '../../types';
 import { SHIFT_MAX_STAFF } from '../../config/constants';
 import { Phone, Plus, UserPlus, XCircle, Trash2, Edit2 } from 'lucide-react';
@@ -37,59 +37,68 @@ export const PrepareFromListPanel: React.FC<PrepareFromListPanelProps> = ({
 
   const maxAllowed = SHIFT_MAX_STAFF[shift] || 4;
 
-  const assignedInShift = new Set(
-    roster.filter((s) => s.shift === shift && s.name.trim() !== "").map((s) => s.name.trim())
-  );
-  const [checked, setChecked] = useState<Set<string>>(assignedInShift);
+  const [checked, setChecked] = useState<Set<string>>(() => {
+    return new Set(
+      roster.filter((s) => s.shift === shift && s.name && s.name.trim() !== "").map((s) => s.name.trim())
+    );
+  });
 
   useEffect(() => {
     setChecked(
-      new Set(roster.filter((s) => s.shift === shift && s.name.trim() !== "").map((s) => s.name.trim()))
+      new Set(roster.filter((s) => s.shift === shift && s.name && s.name.trim() !== "").map((s) => s.name.trim()))
     );
     setSaveStatus("");
   }, [shift, roster]);
 
   // Identify staff members assigned in any OTHER shift
-  const otherShiftStaff = roster.filter((s) => s.shift !== shift && s.name.trim() !== "");
-  const otherShiftMap = new Map(
-    otherShiftStaff.map((s) => [s.name.trim().toLowerCase(), s.shift])
-  );
+  const otherShiftMap = useMemo(() => {
+    const otherStaff = roster.filter((s) => s.shift !== shift && s.name && s.name.trim() !== "");
+    return new Map(
+      otherStaff.map((s) => [(s.name || "").trim().toLowerCase(), s.shift])
+    );
+  }, [roster, shift]);
 
-  const toggleCheck = (name: string, isOther: boolean) => {
+  const toggleCheck = useCallback((name: string, isOther: boolean) => {
     if (isOther || !name.trim()) return;
     setSaveStatus("");
-    const next = new Set(checked);
-    if (next.has(name)) {
-      next.delete(name);
-    } else if (next.size < maxAllowed) {
-      next.add(name);
-    }
-    setChecked(next);
-  };
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else if (next.size < maxAllowed) {
+        next.add(name);
+      }
+      return next;
+    });
+  }, [maxAllowed]);
 
-  const handleClearSlot = async (cardId: string, staffName: string) => {
+  const handleClearSlot = useCallback(async (cardId: string, staffName: string) => {
     if (staffName) {
-      const next = new Set(checked);
-      next.delete(staffName.trim());
-      setChecked(next);
+      setChecked((prev) => {
+        const next = new Set(prev);
+        next.delete(staffName.trim());
+        return next;
+      });
     }
     if (onClearStaffSlot) {
       await onClearStaffSlot(cardId, staffName);
     }
-  };
+  }, [onClearStaffSlot]);
 
-  const handleDeleteCard = async (cardId: string, staffName: string) => {
+  const handleDeleteCard = useCallback(async (cardId: string, staffName: string) => {
     if (staffName) {
-      const next = new Set(checked);
-      next.delete(staffName.trim());
-      setChecked(next);
+      setChecked((prev) => {
+        const next = new Set(prev);
+        next.delete(staffName.trim());
+        return next;
+      });
     }
     if (onDeleteStaffCard) {
       await onDeleteStaffCard(cardId, staffName);
     }
-  };
+  }, [onDeleteStaffCard]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
       await onBatchUpdateStaff(shift, checked, maxAllowed);
@@ -100,36 +109,38 @@ export const PrepareFromListPanel: React.FC<PrepareFromListPanelProps> = ({
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [onBatchUpdateStaff, shift, checked, maxAllowed]);
 
-  const handleCreateStaff = async (e: React.FormEvent) => {
+  const handleCreateStaff = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!onAddNewStaff) return;
     const generatedId = newStaffId.trim() || `Lab ${staffList.length + 1}`;
     await onAddNewStaff(generatedId, newStaffName.trim(), newStaffPhone.trim());
     if (newStaffName.trim() && checked.size < maxAllowed) {
-      const next = new Set(checked);
-      next.add(newStaffName.trim());
-      setChecked(next);
+      setChecked((prev) => {
+        const next = new Set(prev);
+        next.add(newStaffName.trim());
+        return next;
+      });
     }
     setNewStaffId("");
     setNewStaffName("");
     setNewStaffPhone("");
     setShowAddStaff(false);
-  };
+  }, [onAddNewStaff, newStaffId, newStaffName, newStaffPhone, staffList.length, checked.size, maxAllowed]);
 
-  const handleStartEdit = (staff: StaffMember) => {
+  const handleStartEdit = useCallback((staff: StaffMember) => {
     setEditingCardId(staff.id);
     setEditId(staff.id);
     setEditName(staff.name || "");
     setEditPhone(staff.phone || "");
-  };
+  }, []);
 
-  const handleSaveEdit = async (cardId: string) => {
+  const handleSaveEdit = useCallback(async (cardId: string) => {
     if (!onUpdateStaffMember) return;
     await onUpdateStaffMember(cardId, editId.trim() || cardId, editName.trim(), editPhone.trim());
     setEditingCardId(null);
-  };
+  }, [onUpdateStaffMember, editId, editName, editPhone]);
 
   return (
     <div className="space-y-4">

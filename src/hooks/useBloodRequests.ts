@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   auth,
   db,
@@ -50,7 +50,7 @@ export const useBloodRequests = () => {
     return () => unsubscribe();
   }, []);
 
-  const createBloodRequest = async (
+  const createBloodRequest = useCallback(async (
     hospitalName: string,
     items: RequestedItem[],
     urgency: UrgencyLevel | string
@@ -71,9 +71,9 @@ export const useBloodRequests = () => {
       handleFirestoreError(err, OperationType.CREATE, "requests");
       throw err;
     }
-  };
+  }, []);
 
-  const updateBloodRequestStatus = async (id: string, newStatus: string | RequestStatus) => {
+  const updateBloodRequestStatus = useCallback(async (id: string, newStatus: string | RequestStatus) => {
     try {
       const docRef = doc(db, "requests", id);
       await updateDoc(docRef, { status: newStatus as RequestStatus });
@@ -82,9 +82,9 @@ export const useBloodRequests = () => {
       handleFirestoreError(err, OperationType.UPDATE, `requests/${id}`);
       throw err;
     }
-  };
+  }, []);
 
-  const deleteBloodRequest = async (id: string) => {
+  const deleteBloodRequest = useCallback(async (id: string) => {
     try {
       const docRef = doc(db, "requests", id);
       await deleteDoc(docRef);
@@ -92,9 +92,9 @@ export const useBloodRequests = () => {
       handleFirestoreError(err, OperationType.DELETE, `requests/${id}`);
       throw err;
     }
-  };
+  }, []);
 
-  const batchDeleteBloodRequests = async (ids: string[]) => {
+  const batchDeleteBloodRequests = useCallback(async (ids: string[]) => {
     try {
       const batch = writeBatch(db);
       ids.forEach((id) => {
@@ -106,7 +106,7 @@ export const useBloodRequests = () => {
       handleFirestoreError(err, OperationType.DELETE, "requests");
       throw err;
     }
-  };
+  }, []);
 
   return {
     requests,
