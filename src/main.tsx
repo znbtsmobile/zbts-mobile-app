@@ -21,6 +21,17 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
  });
 }
 
+// Prevent transient IndexedDB database closing/hidden errors in iframes from disrupting execution
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const msg = event?.reason?.message || String(event?.reason || '');
+    if (msg.includes('Database is closing/hidden') || msg.includes('closing/hidden')) {
+      console.warn('Handled transient browser database lifecycle event:', msg);
+      event.preventDefault();
+    }
+  });
+}
+
 const updateSW = registerSW({
  onNeedRefresh() {
  // Automatically update the app when a new service worker is available

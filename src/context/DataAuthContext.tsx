@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, ReactNode } from "react";
-import { auth, onAuthStateChanged, db, doc, onSnapshot, handleFirestoreError, OperationType } from "../services/firebase";
+import { auth, onAuthStateChanged, db, doc, onSnapshot, handleFirestoreError, OperationType, logFirestoreRead } from "../services/firebase";
 import { AuthRow, DataAuthContextType } from "../types";
 
 const DataAuthContext = createContext<DataAuthContextType | undefined>(undefined);
@@ -39,6 +39,7 @@ export const DataAuthProvider: React.FC<{ children: ReactNode }> = ({ children }
       const isRootAdmin = user.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
       try {
+        logFirestoreRead("DataAuthContext", "settings/data_authorizations");
         unsubSnapshot = onSnapshot(
           doc(db, "settings", "data_authorizations"),
           (docSnap) => {
@@ -109,6 +110,7 @@ export const useDataAuth = (): DataAuthContextType => {
       const isRootAdmin = user.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
       try {
+        logFirestoreRead("useDataAuth (Fallback Hook)", "settings/data_authorizations");
         unsubSnapshot = onSnapshot(
           doc(db, "settings", "data_authorizations"),
           (docSnap) => {

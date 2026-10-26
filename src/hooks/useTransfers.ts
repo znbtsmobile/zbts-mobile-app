@@ -5,20 +5,54 @@ import {
   collection,
   query,
   orderBy,
+  limit,
   onSnapshot,
   addDoc,
   deleteDoc,
   doc,
   writeBatch,
   handleFirestoreError,
-  OperationType
+  OperationType,
+  logFirestoreRead
 } from "../services/firebase";
 import { UnitTransfer, BloodStock } from "../types";
 import { playSuccessSound } from "../services/audio";
 
+// Shared in-memory cache and singleton listener to prevent redundant transfers reads
+let cachedTransfers: UnitTransfer[] | null = null;
+let activeUnsub: (() => void) | null = null;
+const subscribers = new Set<(items: UnitTransfer[]) => void>();
+let disconnectTimeout: any = null;
+
+function subscribeToTransfers() {
+  if (activeUnsub) return;
+  if (!auth.currentUser) return;
+
+  logFirestoreRead("useTransfers (Singleton Listener)", "transfers (limit 50)");
+
+  const q = query(collection(db, "transfers"), orderBy("timestamp", "desc"), limit(50));
+  activeUnsub = onSnapshot(
+    q,
+    (snapshot) => {
+      const items: UnitTransfer[] = [];
+      snapshot.docs.forEach((d: any) => {
+        items.push({
+          id: d.id,
+          ...d.data()
+        } as UnitTransfer);
+      });
+      cachedTransfers = items;
+      subscribers.forEach((cb) => cb(items));
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, "transfers");
+    }
+  );
+}
+
 export const useTransfers = () => {
-  const [transfers, setTransfers] = useState<UnitTransfer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [transfers, setTransfers] = useState<UnitTransfer[]>(() => cachedTransfers || []);
+  const [loading, setLoading] = useState<boolean>(() => !cachedTransfers);
 
   useEffect(() => {
     if (!auth.currentUser) {
@@ -26,27 +60,36 @@ export const useTransfers = () => {
       return;
     }
 
-    const q = query(collection(db, "transfers"), orderBy("timestamp", "desc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const items: UnitTransfer[] = [];
-        snapshot.docs.forEach((d: any) => {
-          items.push({
-            id: d.id,
-            ...d.data()
-          } as UnitTransfer);
-        });
-        setTransfers(items);
-        setLoading(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "transfers");
-        setLoading(false);
-      }
-    );
+    if (disconnectTimeout) {
+      clearTimeout(disconnectTimeout);
+      disconnectTimeout = null;
+    }
 
-    return () => unsubscribe();
+    const handler = (items: UnitTransfer[]) => {
+      setTransfers(items);
+      setLoading(false);
+    };
+
+    subscribers.add(handler);
+
+    if (cachedTransfers) {
+      setTransfers(cachedTransfers);
+      setLoading(false);
+    }
+
+    subscribeToTransfers();
+
+    return () => {
+      subscribers.delete(handler);
+      if (subscribers.size === 0 && activeUnsub) {
+        disconnectTimeout = setTimeout(() => {
+          if (subscribers.size === 0 && activeUnsub) {
+            activeUnsub();
+            activeUnsub = null;
+          }
+        }, 45000);
+      }
+    };
   }, []);
 
   const transferUnit = async (params: {

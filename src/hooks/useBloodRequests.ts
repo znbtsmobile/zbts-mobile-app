@@ -5,6 +5,7 @@ import {
   collection,
   query,
   orderBy,
+  limit,
   onSnapshot,
   addDoc,
   deleteDoc,
@@ -12,14 +13,47 @@ import {
   updateDoc,
   writeBatch,
   handleFirestoreError,
-  OperationType
+  OperationType,
+  logFirestoreRead
 } from "../services/firebase";
 import { BloodRequest, RequestedItem, UrgencyLevel, RequestStatus } from "../types";
 import { playSuccessSound } from "../services/audio";
 
+// Shared in-memory cache and singleton listener to avoid unbounded duplicate reads across Bookings & Trend
+let cachedRequests: BloodRequest[] | null = null;
+let activeUnsub: (() => void) | null = null;
+const subscribers = new Set<(items: BloodRequest[]) => void>();
+let disconnectTimeout: any = null;
+
+function subscribeToRequests() {
+  if (activeUnsub) return;
+  if (!auth.currentUser) return;
+
+  logFirestoreRead("useBloodRequests (Singleton Listener)", "requests (limit 50)");
+
+  const q = query(collection(db, "requests"), orderBy("timestamp", "desc"), limit(50));
+  activeUnsub = onSnapshot(
+    q,
+    (snapshot) => {
+      const fetched: BloodRequest[] = [];
+      snapshot.docs.forEach((d: any) => {
+        fetched.push({
+          id: d.id,
+          ...d.data()
+        } as BloodRequest);
+      });
+      cachedRequests = fetched;
+      subscribers.forEach((cb) => cb(fetched));
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, "requests");
+    }
+  );
+}
+
 export const useBloodRequests = () => {
-  const [requests, setRequests] = useState<BloodRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [requests, setRequests] = useState<BloodRequest[]>(() => cachedRequests || []);
+  const [loading, setLoading] = useState<boolean>(() => !cachedRequests);
 
   useEffect(() => {
     if (!auth.currentUser) {
@@ -27,27 +61,37 @@ export const useBloodRequests = () => {
       return;
     }
 
-    const q = query(collection(db, "requests"), orderBy("timestamp", "desc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetched: BloodRequest[] = [];
-        snapshot.docs.forEach((d: any) => {
-          fetched.push({
-            id: d.id,
-            ...d.data()
-          } as BloodRequest);
-        });
-        setRequests(fetched);
-        setLoading(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "requests");
-        setLoading(false);
-      }
-    );
+    if (disconnectTimeout) {
+      clearTimeout(disconnectTimeout);
+      disconnectTimeout = null;
+    }
 
-    return () => unsubscribe();
+    const handler = (items: BloodRequest[]) => {
+      setRequests(items);
+      setLoading(false);
+    };
+
+    subscribers.add(handler);
+
+    if (cachedRequests) {
+      setRequests(cachedRequests);
+      setLoading(false);
+    }
+
+    subscribeToRequests();
+
+    return () => {
+      subscribers.delete(handler);
+      // Keep listener alive across tab transitions for 45s to prevent re-querying
+      if (subscribers.size === 0 && activeUnsub) {
+        disconnectTimeout = setTimeout(() => {
+          if (subscribers.size === 0 && activeUnsub) {
+            activeUnsub();
+            activeUnsub = null;
+          }
+        }, 45000);
+      }
+    };
   }, []);
 
   const createBloodRequest = useCallback(async (

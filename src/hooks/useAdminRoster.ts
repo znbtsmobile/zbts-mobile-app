@@ -1,5 +1,14 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { auth, db, doc, onSnapshot, setDoc, handleFirestoreError, OperationType } from "../services/firebase";
+import {
+  auth,
+  db,
+  doc,
+  onSnapshot,
+  setDoc,
+  handleFirestoreError,
+  OperationType,
+  logFirestoreRead
+} from "../services/firebase";
 import { EmergencyContact, LabStaff, ShiftType, StaffMember } from "../types";
 import {
   INITIAL_EMERGENCY_CONTACTS,
@@ -45,11 +54,72 @@ const ensureUniformSlots = (items: LabStaff[]): LabStaff[] => {
   return result;
 };
 
+// In-memory cache and singleton listener to prevent redundant settings reads
+let cachedContacts: EmergencyContact[] = INITIAL_EMERGENCY_CONTACTS;
+let cachedRoster: LabStaff[] = ensureUniformSlots(INITIAL_ROSTER);
+let cachedStaffList: StaffMember[] = [];
+let hasLoadedSettings = false;
+let activeRosterUnsubs: (() => void)[] = [];
+const rosterSubscribers = new Set<(data: { contacts: EmergencyContact[]; roster: LabStaff[]; staffList: StaffMember[] }) => void>();
+let rosterDisconnectTimeout: any = null;
+
+function subscribeToAdminRoster() {
+  if (activeRosterUnsubs.length > 0) return;
+  if (!auth.currentUser) return;
+
+  logFirestoreRead("useAdminRoster (Singleton Listener)", "settings/emergency_contacts");
+  const unsubContacts = onSnapshot(
+    doc(db, "settings", "emergency_contacts"),
+    (docSnap) => {
+      if (docSnap.exists() && docSnap.data().contacts) {
+        cachedContacts = docSnap.data().contacts;
+      } else {
+        cachedContacts = INITIAL_EMERGENCY_CONTACTS;
+      }
+      rosterSubscribers.forEach((cb) => cb({ contacts: cachedContacts, roster: cachedRoster, staffList: cachedStaffList }));
+    },
+    (err) => handleFirestoreError(err, OperationType.GET, "settings/emergency_contacts")
+  );
+
+  logFirestoreRead("useAdminRoster (Singleton Listener)", "settings/lab_roster");
+  const unsubRoster = onSnapshot(
+    doc(db, "settings", "lab_roster"),
+    (docSnap) => {
+      if (docSnap.exists() && docSnap.data().roster) {
+        cachedRoster = ensureUniformSlots(docSnap.data().roster);
+      } else {
+        cachedRoster = ensureUniformSlots(INITIAL_ROSTER);
+      }
+      hasLoadedSettings = true;
+      rosterSubscribers.forEach((cb) => cb({ contacts: cachedContacts, roster: cachedRoster, staffList: cachedStaffList }));
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.GET, "settings/lab_roster");
+    }
+  );
+
+  logFirestoreRead("useAdminRoster (Singleton Listener)", "settings/lab_staff_list");
+  const unsubStaffList = onSnapshot(
+    doc(db, "settings", "lab_staff_list"),
+    (docSnap) => {
+      if (docSnap.exists() && docSnap.data().staffList) {
+        cachedStaffList = docSnap.data().staffList;
+      }
+      rosterSubscribers.forEach((cb) => cb({ contacts: cachedContacts, roster: cachedRoster, staffList: cachedStaffList }));
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.GET, "settings/lab_staff_list");
+    }
+  );
+
+  activeRosterUnsubs = [unsubContacts, unsubRoster, unsubStaffList];
+}
+
 export const useAdminRoster = () => {
-  const [contacts, setContacts] = useState<EmergencyContact[]>(INITIAL_EMERGENCY_CONTACTS);
-  const [roster, setRoster] = useState<LabStaff[]>(() => ensureUniformSlots(INITIAL_ROSTER));
-  const [persistedStaff, setPersistedStaff] = useState<StaffMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [contacts, setContacts] = useState<EmergencyContact[]>(() => cachedContacts);
+  const [roster, setRoster] = useState<LabStaff[]>(() => cachedRoster);
+  const [persistedStaff, setPersistedStaff] = useState<StaffMember[]>(() => cachedStaffList);
+  const [loading, setLoading] = useState<boolean>(() => !hasLoadedSettings);
 
   useEffect(() => {
     if (!auth.currentUser) {
@@ -57,50 +127,39 @@ export const useAdminRoster = () => {
       return;
     }
 
-    const unsubContacts = onSnapshot(
-      doc(db, "settings", "emergency_contacts"),
-      (docSnap) => {
-        if (docSnap.exists() && docSnap.data().contacts) {
-          setContacts(docSnap.data().contacts);
-        } else {
-          setContacts(INITIAL_EMERGENCY_CONTACTS);
-        }
-      },
-      (err) => handleFirestoreError(err, OperationType.GET, "settings/emergency_contacts")
-    );
+    if (rosterDisconnectTimeout) {
+      clearTimeout(rosterDisconnectTimeout);
+      rosterDisconnectTimeout = null;
+    }
 
-    const unsubRoster = onSnapshot(
-      doc(db, "settings", "lab_roster"),
-      (docSnap) => {
-        if (docSnap.exists() && docSnap.data().roster) {
-          setRoster(ensureUniformSlots(docSnap.data().roster));
-        } else {
-          setRoster(ensureUniformSlots(INITIAL_ROSTER));
-        }
-        setLoading(false);
-      },
-      (err) => {
-        handleFirestoreError(err, OperationType.GET, "settings/lab_roster");
-        setLoading(false);
-      }
-    );
+    const handler = (data: { contacts: EmergencyContact[]; roster: LabStaff[]; staffList: StaffMember[] }) => {
+      setContacts(data.contacts);
+      setRoster(data.roster);
+      setPersistedStaff(data.staffList);
+      setLoading(false);
+    };
 
-    const unsubStaffList = onSnapshot(
-      doc(db, "settings", "lab_staff_list"),
-      (docSnap) => {
-        if (docSnap.exists() && docSnap.data().staffList) {
-          setPersistedStaff(docSnap.data().staffList);
-        }
-      },
-      (err) => {
-        handleFirestoreError(err, OperationType.GET, "settings/lab_staff_list");
-      }
-    );
+    rosterSubscribers.add(handler);
+
+    if (hasLoadedSettings) {
+      setContacts(cachedContacts);
+      setRoster(cachedRoster);
+      setPersistedStaff(cachedStaffList);
+      setLoading(false);
+    }
+
+    subscribeToAdminRoster();
 
     return () => {
-      unsubContacts();
-      unsubRoster();
-      unsubStaffList();
+      rosterSubscribers.delete(handler);
+      if (rosterSubscribers.size === 0 && activeRosterUnsubs.length > 0) {
+        rosterDisconnectTimeout = setTimeout(() => {
+          if (rosterSubscribers.size === 0 && activeRosterUnsubs.length > 0) {
+            activeRosterUnsubs.forEach((u) => u());
+            activeRosterUnsubs = [];
+          }
+        }, 45000);
+      }
     };
   }, []);
 
@@ -269,7 +328,6 @@ export const useAdminRoster = () => {
     const oldName = targetCard?.name || staffName || "";
     const oldNameLower = (oldName || "").trim().toLowerCase();
 
-    // Clear name and contact number saved in related card
     const updatedStaffList = baseList.map((s) => {
       const sId = (s.id || "").trim().toLowerCase();
       const sName = (s.name || "").trim().toLowerCase();
@@ -282,7 +340,6 @@ export const useAdminRoster = () => {
     setPersistedStaff(updatedStaffList);
     await setDoc(doc(db, "settings", "lab_staff_list"), { staffList: updatedStaffList });
 
-    // Clear from roster if assigned
     const updatedRoster = roster.map((s) => {
       const sLabId = (s.labId || "").trim().toLowerCase();
       const sName = (s.name || "").trim().toLowerCase();
@@ -313,7 +370,6 @@ export const useAdminRoster = () => {
     const oldName = targetCard?.name || staffName || "";
     const oldNameLower = (oldName || "").trim().toLowerCase();
 
-    // Remove specific card completely
     const updatedStaffList = baseList.filter((s) => {
       const sId = (s.id || "").trim().toLowerCase();
       const sName = (s.name || "").trim().toLowerCase();
@@ -325,7 +381,6 @@ export const useAdminRoster = () => {
     setPersistedStaff(updatedStaffList);
     await setDoc(doc(db, "settings", "lab_staff_list"), { staffList: updatedStaffList });
 
-    // Clear from roster if assigned
     const updatedRoster = roster.map((s) => {
       const sLabId = (s.labId || "").trim().toLowerCase();
       const sName = (s.name || "").trim().toLowerCase();

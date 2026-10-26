@@ -36,8 +36,7 @@ export const ZNBTSReserveScreen: React.FC<ZNBTSReserveScreenProps> = ({
  <ArrowLeft className="w-6 h-6 stroke-[2.5]" />
  </button>
  <div>
- <h2 className="text-[20px] font-bold text-[#0D47A1]">Zanzibar Hifadhi ya Damu</h2>
- <p className="text-xs text-[#1E3A8A] font-semibold">Main Blood Bank Depot</p>
+ <h2 className="text-[20px] font-bold text-[#0D47A1]">ZNBTS Reserve Stock</h2>
  </div>
  </div>
  <button

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Mail, User, Trash2 } from "lucide-react";
-import { auth, db, doc, onSnapshot, setDoc, handleFirestoreError, OperationType } from "../../services/firebase";
+import { auth, db, doc, onSnapshot, setDoc, handleFirestoreError, OperationType, logFirestoreRead } from "../../services/firebase";
 import { AuthRow } from "../../types";
 import { CENTERS, MAX_AUTH_SLOTS } from "../../config/constants";
 import { playSuccessSound } from "../../services/audio";
@@ -13,6 +13,7 @@ export const DataAuthPanel: React.FC<{ onBack?: () => void }> = () => {
   const isDirtyRef = useRef(false);
 
   useEffect(() => {
+    logFirestoreRead("DataAuthPanel", "settings/data_authorizations");
     const unsub = onSnapshot(
       doc(db, "settings", "data_authorizations"),
       (docSnap) => {

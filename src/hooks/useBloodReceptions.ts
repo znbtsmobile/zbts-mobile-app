@@ -5,22 +5,53 @@ import {
   collection,
   query,
   orderBy,
+  limit,
   onSnapshot,
-  addDoc,
   deleteDoc,
   doc,
-  updateDoc,
   writeBatch,
-  getDoc,
   handleFirestoreError,
-  OperationType
+  OperationType,
+  logFirestoreRead
 } from "../services/firebase";
 import { BloodReception, ReceptionStatus, BloodStock } from "../types";
 import { playSuccessSound } from "../services/audio";
 
+// Shared in-memory cache and singleton listener to prevent redundant receptions reads
+let cachedReceptions: BloodReception[] | null = null;
+let activeUnsub: (() => void) | null = null;
+const subscribers = new Set<(items: BloodReception[]) => void>();
+let disconnectTimeout: any = null;
+
+function subscribeToReceptions() {
+  if (activeUnsub) return;
+  if (!auth.currentUser) return;
+
+  logFirestoreRead("useBloodReceptions (Singleton Listener)", "receptions (limit 50)");
+
+  const q = query(collection(db, "receptions"), orderBy("timestamp", "desc"), limit(50));
+  activeUnsub = onSnapshot(
+    q,
+    (snapshot) => {
+      const items: BloodReception[] = [];
+      snapshot.docs.forEach((d) => {
+        items.push({
+          id: d.id,
+          ...d.data()
+        } as BloodReception);
+      });
+      cachedReceptions = items;
+      subscribers.forEach((cb) => cb(items));
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, "receptions");
+    }
+  );
+}
+
 export const useBloodReceptions = () => {
-  const [receptions, setReceptions] = useState<BloodReception[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [receptions, setReceptions] = useState<BloodReception[]>(() => cachedReceptions || []);
+  const [loading, setLoading] = useState<boolean>(() => !cachedReceptions);
 
   useEffect(() => {
     if (!auth.currentUser) {
@@ -28,27 +59,36 @@ export const useBloodReceptions = () => {
       return;
     }
 
-    const q = query(collection(db, "receptions"), orderBy("timestamp", "desc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const items: BloodReception[] = [];
-        snapshot.docs.forEach((d) => {
-          items.push({
-            id: d.id,
-            ...d.data()
-          } as BloodReception);
-        });
-        setReceptions(items);
-        setLoading(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, "receptions");
-        setLoading(false);
-      }
-    );
+    if (disconnectTimeout) {
+      clearTimeout(disconnectTimeout);
+      disconnectTimeout = null;
+    }
 
-    return () => unsubscribe();
+    const handler = (items: BloodReception[]) => {
+      setReceptions(items);
+      setLoading(false);
+    };
+
+    subscribers.add(handler);
+
+    if (cachedReceptions) {
+      setReceptions(cachedReceptions);
+      setLoading(false);
+    }
+
+    subscribeToReceptions();
+
+    return () => {
+      subscribers.delete(handler);
+      if (subscribers.size === 0 && activeUnsub) {
+        disconnectTimeout = setTimeout(() => {
+          if (subscribers.size === 0 && activeUnsub) {
+            activeUnsub();
+            activeUnsub = null;
+          }
+        }, 45000);
+      }
+    };
   }, []);
 
   const addReception = async (
@@ -72,11 +112,9 @@ export const useBloodReceptions = () => {
             const cleanBlood = (item.bloodType || "Consignment").replace(/[\/\s]+/g, "-").trim();
             const stockId = `${receptionData.receivingFacility}_${cleanProduct}_${cleanBlood}`;
             
-            // Only proceed if stockId is a valid non-empty single document segment
             if (stockId && !stockId.includes("/")) {
               const stockRef = doc(db, "inventory", stockId);
 
-              // Calculate new quantity
               let currentQty = 0;
               if (currentInventory) {
                 const matched = currentInventory.find(
@@ -87,15 +125,6 @@ export const useBloodReceptions = () => {
                 );
                 if (matched) {
                   currentQty = matched.quantity;
-                }
-              } else {
-                try {
-                  const snap = await getDoc(stockRef);
-                  if (snap.exists()) {
-                    currentQty = snap.data().quantity || 0;
-                  }
-                } catch (e) {
-                  console.warn("Could not fetch current stock, defaulting to 0:", e);
                 }
               }
 
@@ -137,7 +166,6 @@ export const useBloodReceptions = () => {
 
       batch.update(receptionRef, { status });
 
-      // If changing to Accepted from non-accepted, and wasn't previously synced to inventory
       if (status === "Accepted" && !reception.updatedInventory) {
         batch.update(receptionRef, { updatedInventory: true });
         for (const item of reception.items) {

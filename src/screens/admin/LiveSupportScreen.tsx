@@ -132,9 +132,6 @@ export const LiveSupportScreen: React.FC<LiveSupportScreenProps> = ({ onBack }) 
             </p>
           </div>
         </div>
-        <p className="text-xs sm:text-sm text-slate-700 font-medium mt-2">
-          Direct telephone lines to laboratory team on active duty, administrative coordination, and emergency response.
-        </p>
       </div>
 
       {/* Filter Tabs */}

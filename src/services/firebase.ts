@@ -1,6 +1,9 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
 import {
+  initializeAuth,
+  browserLocalPersistence,
+  browserSessionPersistence,
   getAuth,
   signInWithEmailAndPassword as fbSignIn,
   createUserWithEmailAndPassword as fbCreateUser,
@@ -28,8 +31,14 @@ import {
   getDoc,
   getDocFromServer,
   getDocs,
+  limit,
+  getCountFromServer,
   setLogLevel
 } from "firebase/firestore";
+
+export function logFirestoreRead(source: string, collectionName: string) {
+  console.log(`[FIRESTORE READ] Source: ${source}, Collection: ${collectionName}`);
+}
 
 setLogLevel("silent");
 
@@ -66,7 +75,18 @@ if (typeof window !== "undefined") {
   }).catch(() => {});
 }
 
-export const auth = getAuth(app);
+export const auth = (() => {
+  if (typeof window !== "undefined") {
+    try {
+      return initializeAuth(app, {
+        persistence: [browserLocalPersistence, browserSessionPersistence]
+      });
+    } catch {
+      return getAuth(app);
+    }
+  }
+  return getAuth(app);
+})();
 
 const databaseId = firebaseAppletConfig.firestoreDatabaseId || "ai-studio-zbtsbloodbank-5a4a2020-6946-4e26-a956-3e4bde959627";
 
@@ -99,12 +119,15 @@ export {
   writeBatch,
   getDoc,
   getDocFromServer,
-  getDocs
+  getDocs,
+  limit,
+  getCountFromServer
 };
 
 async function testConnection() {
   try {
     if (auth.currentUser) {
+      logFirestoreRead("testConnection", "test/connection");
       await getDocFromServer(doc(db, "test", "connection"));
     }
   } catch (error) {
@@ -250,9 +273,26 @@ export const seedInitialDataIfEmpty = async () => {
   if (!auth.currentUser) {
     return;
   }
+  // Client-side guard: Skip entirely if already checked this browser session
+  if (typeof window !== "undefined" && localStorage.getItem("zbts_db_seeded_v1")) {
+    return;
+  }
+
   try {
+    // Check if seeding was already performed in Firestore
+    const seedStatusRef = doc(db, "settings", "seed_status");
+    logFirestoreRead("seedInitialDataIfEmpty", "settings/seed_status");
+    const seedSnap = await getDoc(seedStatusRef);
+    if (seedSnap.exists()) {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("zbts_db_seeded_v1", "true");
+      }
+      return;
+    }
+
     // 1. Check settings / authorizations
     const authDocRef = doc(db, "settings", "data_authorizations");
+    logFirestoreRead("seedInitialDataIfEmpty", "settings/data_authorizations");
     const authSnap = await getDoc(authDocRef);
     if (!authSnap.exists()) {
       const defaultAuth = [
@@ -282,6 +322,7 @@ export const seedInitialDataIfEmpty = async () => {
 
     // 2. Emergency Contacts
     const contactsDocRef = doc(db, "settings", "emergency_contacts");
+    logFirestoreRead("seedInitialDataIfEmpty", "settings/emergency_contacts");
     const contactsSnap = await getDoc(contactsDocRef);
     if (!contactsSnap.exists()) {
       await setDoc(contactsDocRef, { contacts: INITIAL_EMERGENCY_CONTACTS });
@@ -289,14 +330,16 @@ export const seedInitialDataIfEmpty = async () => {
 
     // 3. Lab Roster
     const rosterDocRef = doc(db, "settings", "lab_roster");
+    logFirestoreRead("seedInitialDataIfEmpty", "settings/lab_roster");
     const rosterSnap = await getDoc(rosterDocRef);
     if (!rosterSnap.exists()) {
       await setDoc(rosterDocRef, { roster: INITIAL_ROSTER });
     }
 
-    // 4. Initial Requests
+    // 4. Initial Requests (Bounded limit(1) check)
     const reqCol = collection(db, "requests");
-    const reqSnap = await getDocs(reqCol);
+    logFirestoreRead("seedInitialDataIfEmpty", "requests (limit 1)");
+    const reqSnap = await getDocs(query(reqCol, limit(1)));
     if (reqSnap.empty) {
       const now = Date.now();
       const oneDay = 24 * 60 * 60 * 1000;
@@ -348,9 +391,10 @@ export const seedInitialDataIfEmpty = async () => {
       }
     }
 
-    // 5. Initial News
+    // 5. Initial News (Bounded limit(1) check)
     const newsCol = collection(db, "news");
-    const newsSnap = await getDocs(newsCol);
+    logFirestoreRead("seedInitialDataIfEmpty", "news (limit 1)");
+    const newsSnap = await getDocs(query(newsCol, limit(1)));
     if (newsSnap.empty) {
       const now = Date.now();
       const initialNews: NewsItem[] = [
@@ -387,19 +431,16 @@ export const seedInitialDataIfEmpty = async () => {
       }
     }
 
-    // 6. Initial Inventory
+    // 6. Initial Inventory (Bounded limit(1) check instead of fetching all 160 items)
     const invCol = collection(db, "inventory");
-    const invSnap = await getDocs(invCol);
-    const existingIds = new Set(invSnap.docs.map((d) => d.id));
-
-    const batch = writeBatch(db);
-    let addedCount = 0;
-
-    CENTERS.forEach((c) => {
-      PRODUCT_TYPES.forEach((p) => {
-        BLOOD_TYPES.forEach((b) => {
-          const stockId = `${c.route}_${p}_${b}`;
-          if (!existingIds.has(stockId)) {
+    logFirestoreRead("seedInitialDataIfEmpty", "inventory (limit 1)");
+    const invSnap = await getDocs(query(invCol, limit(1)));
+    if (invSnap.empty) {
+      const batch = writeBatch(db);
+      CENTERS.forEach((c) => {
+        PRODUCT_TYPES.forEach((p) => {
+          BLOOD_TYPES.forEach((b) => {
+            const stockId = `${c.route}_${p}_${b}`;
             let baseQty = 0;
             if (c.route === "zanzibar") {
               baseQty = b === "O+" || b === "A+" ? 18 : b.includes("-") ? 4 : 10;
@@ -417,14 +458,16 @@ export const seedInitialDataIfEmpty = async () => {
               quantity: baseQty,
               lastUpdated: Date.now()
             });
-            addedCount++;
-          }
+          });
         });
       });
-    });
-
-    if (addedCount > 0) {
       await batch.commit();
+    }
+
+    // Mark as seeded in Firestore and localStorage
+    await setDoc(seedStatusRef, { seeded: true, timestamp: Date.now() });
+    if (typeof window !== "undefined") {
+      localStorage.setItem("zbts_db_seeded_v1", "true");
     }
   } catch (error) {
     console.warn("Firestore seed note:", error);

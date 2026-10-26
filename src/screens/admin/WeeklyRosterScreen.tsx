@@ -49,8 +49,6 @@ export const WeeklyRosterScreen: React.FC<WeeklyRosterScreenProps> = ({ roster }
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-black">Lab Team Assistance</h2>
-
       <div className="bg-blue-100 p-5 rounded-2xl shadow-sm">
         <p className="text-[#0D47A1] text-sm font-bold">Today</p>
         <p className="text-[#0B1E36] text-xl font-extrabold">{currentDayStr}</p>
