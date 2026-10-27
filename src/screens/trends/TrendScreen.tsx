@@ -15,6 +15,26 @@ import { BLOOD_TYPES } from "../../config/constants";
 import { useBloodRequests } from "../../hooks/useBloodRequests";
 import { useInventory } from "../../hooks/useInventory";
 
+const renderBarLabel = (props: any, color: string) => {
+  const { x, y, width, height, value } = props;
+  if (!value || Number(value) === 0) return null;
+  const num = Number(value);
+  const isTall = typeof height === "number" && height >= 22;
+  return (
+    <text
+      x={x + width / 2}
+      y={isTall ? y + 13 : y - 4}
+      fill={isTall ? "#ffffff" : color}
+      textAnchor="middle"
+      fontSize={10}
+      fontWeight={700}
+      style={isTall ? { textShadow: "0 1px 2px rgba(0,0,0,0.5)" } : undefined}
+    >
+      {num}
+    </text>
+  );
+};
+
 export default function TrendScreen() {
   const { requests, loading: requestsLoading } = useBloodRequests();
   const { inventory, loading: inventoryLoading } = useInventory();
@@ -85,6 +105,24 @@ export default function TrendScreen() {
     return { adultStock, adultReq, pedStock, pedReq };
   }, [chartData]);
 
+  // Synchronized unified scale for Adult PRC so Request height matches Stock height accurately
+  const maxAdultVal = useMemo(() => {
+    let max = 10;
+    chartData.forEach((d) => {
+      max = Math.max(max, d.adultPrcInventory, d.adultPrcRequests);
+    });
+    return Math.ceil((max * 1.15) / 20) * 20;
+  }, [chartData]);
+
+  // Synchronized unified scale for PedPRC so Request height matches Stock height accurately
+  const maxPedVal = useMemo(() => {
+    let max = 10;
+    chartData.forEach((d) => {
+      max = Math.max(max, d.pedPrcInventory, d.pedPrcRequests);
+    });
+    return Math.ceil((max * 1.15) / 20) * 20;
+  }, [chartData]);
+
   if (loading) {
     return (
       <div className="flex flex-col h-full w-full min-h-[400px] justify-center items-center py-20">
@@ -103,13 +141,13 @@ export default function TrendScreen() {
           </div>
           <div>
             <h2 className="text-[20px] sm:text-[22px] font-bold text-[#1976D2]">Trends & Analytics</h2>
-            <p className="text-xs text-slate-500 font-medium">Dual-axis comparative inventory & demand tracking</p>
+            <p className="text-xs text-slate-500 font-medium">Accurate comparative inventory & demand tracking</p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 pb-8">
-        {/* Adult PRC: Combined Dual-Axis Chart */}
+        {/* Adult PRC: Combined Chart with Synchronized Accurate Scale */}
         <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200 min-w-0 flex flex-col">
           <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
             <div className="flex items-center gap-2 text-[#0B1E36]">
@@ -118,7 +156,7 @@ export default function TrendScreen() {
               </div>
               <div>
                 <h3 className="font-bold text-base sm:text-lg text-slate-900">Adult PRC - Demand vs Stock</h3>
-                <p className="text-xs text-slate-500">Stock (Left Axis) vs Requests (Right Axis)</p>
+                <p className="text-xs text-slate-500">Accurate scale • Stock (Left Axis) vs Requests (Right Axis)</p>
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs font-semibold">
@@ -147,7 +185,7 @@ export default function TrendScreen() {
                   tickLine={false}
                   axisLine={{ stroke: "#cbd5e1" }}
                 />
-                {/* Primary Left Y-Axis for Stock (Blue) */}
+                {/* Synchronized Left Y-Axis for Stock (Blue) */}
                 <YAxis
                   yAxisId="left"
                   orientation="left"
@@ -156,9 +194,9 @@ export default function TrendScreen() {
                   tickLine={false}
                   axisLine={{ stroke: "#93c5fd" }}
                   allowDecimals={false}
-                  domain={[0, "auto"]}
+                  domain={[0, maxAdultVal]}
                 />
-                {/* Secondary Right Y-Axis for Requests (Red) */}
+                {/* Synchronized Right Y-Axis for Requests (Red) matching Stock scale */}
                 <YAxis
                   yAxisId="right"
                   orientation="right"
@@ -167,7 +205,7 @@ export default function TrendScreen() {
                   tickLine={false}
                   axisLine={{ stroke: "#fca5a5" }}
                   allowDecimals={false}
-                  domain={[0, "auto"]}
+                  domain={[0, maxAdultVal]}
                 />
                 <Tooltip
                   cursor={{ fill: "#f1f5f9" }}
@@ -190,16 +228,11 @@ export default function TrendScreen() {
                   name="Units in Stock"
                   fill="#1976D2"
                   radius={[4, 4, 0, 0]}
+                  minPointSize={3}
                 >
                   <LabelList
                     dataKey="adultPrcInventory"
-                    position="insideTop"
-                    offset={6}
-                    fill="#ffffff"
-                    fontSize={10}
-                    fontWeight={700}
-                    style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
-                    formatter={(val: any) => (Number(val) > 0 ? val : "")}
+                    content={(props) => renderBarLabel(props, "#1976D2")}
                   />
                 </Bar>
                 <Bar
@@ -208,16 +241,11 @@ export default function TrendScreen() {
                   name="Units Requested"
                   fill="#E53935"
                   radius={[4, 4, 0, 0]}
+                  minPointSize={3}
                 >
                   <LabelList
                     dataKey="adultPrcRequests"
-                    position="insideTop"
-                    offset={6}
-                    fill="#ffffff"
-                    fontSize={10}
-                    fontWeight={700}
-                    style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
-                    formatter={(val: any) => (Number(val) > 0 ? val : "")}
+                    content={(props) => renderBarLabel(props, "#E53935")}
                   />
                 </Bar>
               </BarChart>
@@ -225,7 +253,7 @@ export default function TrendScreen() {
           </div>
         </div>
 
-        {/* PedPRC: Combined Dual-Axis Chart */}
+        {/* PedPRC: Combined Chart with Synchronized Accurate Scale */}
         <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200 min-w-0 flex flex-col">
           <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
             <div className="flex items-center gap-2 text-[#0B1E36]">
@@ -234,7 +262,7 @@ export default function TrendScreen() {
               </div>
               <div>
                 <h3 className="font-bold text-base sm:text-lg text-slate-900">PedPRC - Demand vs Stock</h3>
-                <p className="text-xs text-slate-500">Stock (Left Axis) vs Requests (Right Axis)</p>
+                <p className="text-xs text-slate-500">Accurate scale • Stock (Left Axis) vs Requests (Right Axis)</p>
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs font-semibold">
@@ -263,7 +291,7 @@ export default function TrendScreen() {
                   tickLine={false}
                   axisLine={{ stroke: "#cbd5e1" }}
                 />
-                {/* Primary Left Y-Axis for Stock (Blue) */}
+                {/* Synchronized Left Y-Axis for Stock (Blue) */}
                 <YAxis
                   yAxisId="left"
                   orientation="left"
@@ -272,9 +300,9 @@ export default function TrendScreen() {
                   tickLine={false}
                   axisLine={{ stroke: "#93c5fd" }}
                   allowDecimals={false}
-                  domain={[0, "auto"]}
+                  domain={[0, maxPedVal]}
                 />
-                {/* Secondary Right Y-Axis for Requests (Red) */}
+                {/* Synchronized Right Y-Axis for Requests (Red) matching Stock scale */}
                 <YAxis
                   yAxisId="right"
                   orientation="right"
@@ -283,7 +311,7 @@ export default function TrendScreen() {
                   tickLine={false}
                   axisLine={{ stroke: "#fca5a5" }}
                   allowDecimals={false}
-                  domain={[0, "auto"]}
+                  domain={[0, maxPedVal]}
                 />
                 <Tooltip
                   cursor={{ fill: "#f1f5f9" }}
@@ -306,16 +334,11 @@ export default function TrendScreen() {
                   name="Units in Stock"
                   fill="#1976D2"
                   radius={[4, 4, 0, 0]}
+                  minPointSize={3}
                 >
                   <LabelList
                     dataKey="pedPrcInventory"
-                    position="insideTop"
-                    offset={6}
-                    fill="#ffffff"
-                    fontSize={10}
-                    fontWeight={700}
-                    style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
-                    formatter={(val: any) => (Number(val) > 0 ? val : "")}
+                    content={(props) => renderBarLabel(props, "#1976D2")}
                   />
                 </Bar>
                 <Bar
@@ -324,16 +347,11 @@ export default function TrendScreen() {
                   name="Units Requested"
                   fill="#E53935"
                   radius={[4, 4, 0, 0]}
+                  minPointSize={3}
                 >
                   <LabelList
                     dataKey="pedPrcRequests"
-                    position="insideTop"
-                    offset={6}
-                    fill="#ffffff"
-                    fontSize={10}
-                    fontWeight={700}
-                    style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
-                    formatter={(val: any) => (Number(val) > 0 ? val : "")}
+                    content={(props) => renderBarLabel(props, "#E53935")}
                   />
                 </Bar>
               </BarChart>

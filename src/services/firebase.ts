@@ -33,6 +33,8 @@ import {
   getDocs,
   limit,
   getCountFromServer,
+  disableNetwork,
+  enableNetwork,
   setLogLevel
 } from "firebase/firestore";
 
